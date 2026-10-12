@@ -162,15 +162,17 @@ export function normalizeCustomTarget(raw, catalog) {
   const audioPins = audio ? object(audio.pins, 'chips.audio.pins') : null
   const storagePins = microSD ? object(microSD.pins, 'storage.microSD.pins') : null
 
-  // Two kinds of panel: a controller-driven QSPI AMOLED (the base's own kind)
-  // and a bare parallel RGB panel scanned out by the S3's LCD peripheral. They
-  // share nothing but a size, so each carries its own pins and parameters.
+  // Three kinds of panel: a controller-driven QSPI AMOLED (the base's own
+  // kind), a bare parallel RGB panel scanned out by the S3's LCD peripheral,
+  // and an ST7789-class TFT on a plain 4-wire SPI bus (MOSI, SCLK, CS, DC).
+  // They share nothing but a size, so each carries its own pins and parameters.
   const displayInterface = display ? display.interface : ''
-  if (display && !['qspi', 'rgb'].includes(displayInterface)) {
-    throw new Error(`chips.display.interface '${displayInterface}' is not supported by the ${supportedBase} base. Supported values: qspi, rgb.`)
+  if (display && !['qspi', 'rgb', 'spi'].includes(displayInterface)) {
+    throw new Error(`chips.display.interface '${displayInterface}' is not supported by the ${supportedBase} base. Supported values: qspi, spi, rgb.`)
   }
-  const spiHost = display && displayInterface === 'qspi' ? String(display.spiHost ?? 'spi2').toLowerCase() : 'spi2'
-  if (display && displayInterface === 'qspi' && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
+  const serialDisplay = display && ['qspi', 'spi'].includes(displayInterface)
+  const spiHost = serialDisplay ? String(display.spiHost ?? 'spi2').toLowerCase() : 'spi2'
+  if (serialDisplay && !['spi2', 'spi3'].includes(spiHost)) throw new Error("chips.display.spiHost must be 'spi2' or 'spi3'.")
   const expanderOutputs = expander ? (absent(expander.outputs) ? {} : object(expander.outputs, 'chips.expander.outputs')) : null
   const expanderMaxPin = expander?.driver === 'tca9554' ? 7 : expander?.driver === 'ch422g' ? 11 : 15
   const expanderPin = (value, label) => (absent(value) ? -1 : integer(value, label, { min: 0, max: expanderMaxPin }))
@@ -304,6 +306,42 @@ export function normalizeCustomTarget(raw, catalog) {
           disp: pin(displayPins.disp, 'chips.display.pins.disp', { optional: true }),
           backlight: pin(displayPins.backlight, 'chips.display.pins.backlight', { optional: true })
         }
+      } : displayInterface === 'spi' ? {
+        driver: display.driver,
+        interface: 'spi',
+        spiHost,
+        // The panel's native geometry in its portrait addressing; the pipeline
+        // rotates landscape frames at flush time, and an app that wants a
+        // landscape logical surface says so in its own display defines.
+        width: integer(display.width, 'chips.display.width', { min: 1, max: 4096 }),
+        height: integer(display.height, 'chips.display.height', { min: 1, max: 4096 }),
+        pclkHz: integer(display.pclkHz ?? 40000000, 'chips.display.pclkHz', { min: 1000000, max: 80000000 }),
+        spiMode: integer(display.spiMode ?? 0, 'chips.display.spiMode', { min: 0, max: 3 }),
+        colorOrder: (() => {
+          const order = String(display.colorOrder ?? 'rgb').toLowerCase()
+          if (!['rgb', 'bgr'].includes(order)) throw new Error("chips.display.colorOrder must be 'rgb' or 'bgr'.")
+          return order
+        })(),
+        invertColors: boolean(display.invertColors, 'chips.display.invertColors', false),
+        // Where the glass sits in the controller's GRAM, for a panel smaller
+        // than the 240x320 it addresses; the mirrored pair applies when the
+        // portrait orientation is flipped.
+        gapX: integer(display.gapX ?? 0, 'chips.display.gapX', { min: 0, max: 1024 }),
+        gapY: integer(display.gapY ?? 0, 'chips.display.gapY', { min: 0, max: 1024 }),
+        mirrorGapX: integer(display.mirrorGapX ?? 0, 'chips.display.mirrorGapX', { min: 0, max: 1024 }),
+        mirrorGapY: integer(display.mirrorGapY ?? 0, 'chips.display.mirrorGapY', { min: 0, max: 1024 }),
+        nativeSources: display.nativeSources,
+        bindingSources: display.bindingSources,
+        requires: display.requires,
+        pins: {
+          mosi: pin(displayPins.mosi, 'chips.display.pins.mosi'),
+          sclk: pin(displayPins.sclk, 'chips.display.pins.sclk'),
+          cs: pin(displayPins.cs, 'chips.display.pins.cs'),
+          dc: pin(displayPins.dc, 'chips.display.pins.dc'),
+          // Reset tied to the module's EN, or a backlight wired on, is no GPIO.
+          reset: pin(displayPins.reset, 'chips.display.pins.reset', { optional: true }),
+          backlight: pin(displayPins.backlight, 'chips.display.pins.backlight', { optional: true })
+        }
       } : {
         driver: display.driver,
         interface: 'qspi',
@@ -425,6 +463,14 @@ function validatePinAssignments(target) {
       ['display DISP', display.pins.disp],
       ['display backlight', display.pins.backlight]
     ] : []),
+    ...(display && display.interface === 'spi' ? [
+      ['display MOSI', display.pins.mosi],
+      ['display SCLK', display.pins.sclk],
+      ['display CS', display.pins.cs],
+      ['display DC', display.pins.dc],
+      ['display reset', display.pins.reset],
+      ['display backlight', display.pins.backlight]
+    ] : []),
     ...(display && display.interface === 'qspi' ? [
       ['display CS', display.pins.cs],
       ['display PCLK', display.pins.pclk],
@@ -478,6 +524,7 @@ export function renderBoardHeader(target) {
   const { display, touch, audio, expander } = target.chips
   const rgb = display && display.interface === 'rgb' ? display : null
   const qspi = display && display.interface === 'qspi' ? display : null
+  const spi = display && display.interface === 'spi' ? display : null
   const displayPins = display ? display.pins : noPins
   const touchPins = touch ? touch.pins : noPins
   const audioPins = audio ? audio.pins : noPins
@@ -490,7 +537,7 @@ export function renderBoardHeader(target) {
   const includes = [
     '#include "driver/gpio.h"',
     audio ? '#include "driver/i2s_types.h"' : '',
-    qspi ? '#include "driver/spi_master.h"' : ''
+    qspi || spi ? '#include "driver/spi_master.h"' : ''
   ].filter(Boolean).join('\n')
   return `#pragma once
 
@@ -520,7 +567,10 @@ namespace gea::platform::board {
 struct I2cBusConfig { gpio_num_t sda; gpio_num_t scl; };
 struct SdMmcConfig { gpio_num_t clk; gpio_num_t cmd; gpio_num_t data0; };
 struct LauncherButtonConfig { gpio_num_t pin; int activeLevel; };
-${qspi ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs; gpio_num_t pclk; gpio_num_t data0; gpio_num_t data1; gpio_num_t data2; gpio_num_t data3; gpio_num_t reset; gpio_num_t te; };' : ''}${rgb ? `// A bare parallel RGB panel: no controller, the LCD peripheral scans the
+${qspi ? 'struct Co5300DisplayConfig { spi_host_device_t spiHost; gpio_num_t cs; gpio_num_t pclk; gpio_num_t data0; gpio_num_t data1; gpio_num_t data2; gpio_num_t data3; gpio_num_t reset; gpio_num_t te; };' : ''}${spi ? `// An ST7789-class panel on a 4-wire SPI bus. reset and backlight are
+// GPIO_NUM_NC when the board routes no such line (reset follows EN, backlight
+// hard-wired on); clock, mode, colour order and gaps travel as definitions.
+struct St7789DisplayConfig { spi_host_device_t spiHost; gpio_num_t mosi; gpio_num_t sclk; gpio_num_t cs; gpio_num_t dc; gpio_num_t reset; gpio_num_t backlight; };` : ''}${rgb ? `// A bare parallel RGB panel: no controller, the LCD peripheral scans the
 // framebuffer out with these timings. data[0..4] are blue, [5..10] green,
 // [11..15] red (RGB565 lane order). backlight is a PWM-capable GPIO, or
 // GPIO_NUM_NC when the expander drives it.
@@ -538,6 +588,10 @@ ${rgb ? `inline constexpr RgbPanelDisplayConfig display{
   .vsyncPulseWidth = ${rgb.vsyncPulseWidth}, .vsyncBackPorch = ${rgb.vsyncBackPorch}, .vsyncFrontPorch = ${rgb.vsyncFrontPorch},
   .pclkActiveNeg = ${rgb.pclkActiveNeg ? 'true' : 'false'},
   .backlightActiveLow = ${rgb.backlightActiveLow ? 'true' : 'false'}
+};` : ''}${spi ? `inline constexpr St7789DisplayConfig display{
+  .spiHost = ${spi.spiHost === 'spi3' ? 'SPI3_HOST' : 'SPI2_HOST'}, .mosi = ${gpio(spi.pins.mosi)}, .sclk = ${gpio(spi.pins.sclk)},
+  .cs = ${gpio(spi.pins.cs)}, .dc = ${gpio(spi.pins.dc)},
+  .reset = ${gpio(spi.pins.reset)}, .backlight = ${gpio(spi.pins.backlight)}
 };` : ''}${qspi ? `inline constexpr Co5300DisplayConfig display{
   .spiHost = ${display.spiHost === 'spi3' ? 'SPI3_HOST' : 'SPI2_HOST'}, .cs = ${gpio(displayPins.cs)}, .pclk = ${gpio(displayPins.pclk)},
   .data0 = ${gpio(displayPins.data0)}, .data1 = ${gpio(displayPins.data1)},
@@ -636,7 +690,23 @@ export function renderTargetCmake(target, includeDir, appDefines = new Set()) {
     // it stores native order -- exactly what the Elecrow rotary target does.
     display?.panel ? boardDefine('GEA_CUSTOM_QSPI_PANEL_CONFIG', 1) : '',
     display?.panel?.minChunkRows ? boardDefine('GEA_EMBEDDED_DISPLAY_FLUSH_CHUNK_MIN', display.panel.minChunkRows) : '',
-    display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : ''
+    display && display.interface === 'rgb' ? boardDefine('GEA_EMBEDDED_PIXEL_PANEL_ENDIAN', 0) : '',
+    // An SPI panel is declared in its native portrait geometry; the logical
+    // surface defaults to the same and an app may turn it landscape with its
+    // own width/height defines, so the native pair is what the board owns.
+    display && display.interface === 'spi' ? boardDefine('GEA_EMBEDDED_DISPLAY_NATIVE_WIDTH', display.width) : '',
+    display && display.interface === 'spi' ? boardDefine('GEA_EMBEDDED_DISPLAY_NATIVE_HEIGHT', display.height) : '',
+    display && display.interface === 'spi' ? `
+    GEA_ST7789_LOG_TAG=\\"${display.driver}\\"
+    GEA_ST7789_PCLK_HZ=${display.pclkHz}
+    GEA_ST7789_SPI_MODE=${display.spiMode}
+    GEA_ST7789_RGB_ORDER_BGR=${display.colorOrder === 'bgr' ? 1 : 0}
+    GEA_ST7789_INVERT_COLORS=${display.invertColors ? 1 : 0}
+    GEA_ST7789_GAP_X=${display.gapX}
+    GEA_ST7789_GAP_Y=${display.gapY}
+    GEA_ST7789_MIRROR_GAP_X=${display.mirrorGapX}
+    GEA_ST7789_MIRROR_GAP_Y=${display.mirrorGapY}
+    GEA_ST7789_M5PM1_POWER=0` : ''
   ].join('')
   return `set(GEA_CUSTOM_TARGET_ACTIVE 1)
 ${display?.panel?.transferMode ? `set(GEA_CUSTOM_QSPI_TRANSFER_MODE \"${display.panel.transferMode}\")` : ''}

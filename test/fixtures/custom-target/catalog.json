@@ -407,6 +407,188 @@
           "optional": true
         }
       ]
+    },
+    "st7789": {
+      "label": "ST7789 TFT LCD controller (4-wire SPI)",
+      "category": "display",
+      "interfaces": [
+        "spi"
+      ],
+      "sources": [],
+      "headers": [],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/displays/st7789.cpp"
+          ],
+          "requires": [
+            "esp_driver_ledc"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "width",
+          "label": "Panel width (native, portrait addressing)",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "height",
+          "label": "Panel height (native, portrait addressing)",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "spiHost",
+          "label": "SPI host",
+          "type": "choice",
+          "values": [
+            "spi2",
+            "spi3"
+          ],
+          "default": "spi2"
+        },
+        {
+          "path": "pclkHz",
+          "label": "SPI clock (Hz)",
+          "type": "integer",
+          "min": 1000000,
+          "max": 80000000,
+          "default": 40000000
+        },
+        {
+          "path": "spiMode",
+          "label": "SPI mode (CPOL/CPHA)",
+          "type": "integer",
+          "min": 0,
+          "max": 3,
+          "default": 0
+        },
+        {
+          "path": "colorOrder",
+          "label": "Colour element order",
+          "type": "choice",
+          "values": [
+            "rgb",
+            "bgr"
+          ],
+          "default": "rgb"
+        },
+        {
+          "path": "invertColors",
+          "label": "Panel runs colour-inverted",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "path": "gapX",
+          "label": "GRAM column offset of the glass (portrait primary)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 0
+        },
+        {
+          "path": "gapY",
+          "label": "GRAM row offset of the glass (portrait primary)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 0
+        },
+        {
+          "path": "mirrorGapX",
+          "label": "GRAM column offset when mirrored (portrait secondary)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 0
+        },
+        {
+          "path": "mirrorGapY",
+          "label": "GRAM row offset when mirrored (portrait secondary)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 0
+        },
+        {
+          "path": "pins.mosi",
+          "label": "SPI MOSI pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.sclk",
+          "label": "SPI clock pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.cs",
+          "label": "Chip-select pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.dc",
+          "label": "Data/command pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.reset",
+          "label": "Panel reset pin (leave unset when reset follows the module's EN)",
+          "type": "pin",
+          "optional": true
+        },
+        {
+          "path": "pins.backlight",
+          "label": "Backlight PWM pin (leave unset when the backlight is always on)",
+          "type": "pin",
+          "optional": true
+        }
+      ]
+    },
+    "ft6336": {
+      "label": "FT6336 capacitive touch controller",
+      "category": "touch",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "touch/ft6336/ft6336.cpp"
+      ],
+      "headers": [
+        "touch/ft6336/ft6336.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/touch/ft6336.cpp",
+            "chip_bindings/touch/ft6336_touchscreen.cpp"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "pins.reset",
+          "label": "Touch reset pin (leave unset when the module has no reset line)",
+          "type": "pin",
+          "optional": true
+        },
+        {
+          "path": "pins.interrupt",
+          "label": "Touch interrupt pin (leave unset to poll)",
+          "type": "pin",
+          "optional": true
+        }
+      ]
     }
   }
 }

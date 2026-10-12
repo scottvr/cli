@@ -1,0 +1,50 @@
+{
+  "id": "spi-panel-board",
+  "extends": "esp32-s3",
+  "adapter": "esp32-idf",
+  "mcu": "esp32s3",
+  "flashSize": "16MB",
+  "buses": {
+    "i2c": {
+      "sda": 2,
+      "scl": 1
+    }
+  },
+  "chips": {
+    "display": {
+      "driver": "st7789",
+      "interface": "spi",
+      "width": 240,
+      "height": 320,
+      "pclkHz": 40000000,
+      "colorOrder": "bgr",
+      "invertColors": true,
+      "pins": {
+        "mosi": 16,
+        "sclk": 21,
+        "cs": 47,
+        "dc": 17
+      }
+    },
+    "touch": {
+      "driver": "ft6336",
+      "interface": "i2c"
+    }
+  },
+  "storage": {
+    "microSD": {
+      "interface": "sdmmc-1bit",
+      "pins": {
+        "clk": 39,
+        "cmd": 38,
+        "data0": 40
+      }
+    }
+  },
+  "controls": {
+    "launcherButton": {
+      "pin": 0,
+      "activeLevel": 0
+    }
+  }
+}

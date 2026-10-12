@@ -461,3 +461,80 @@ test('custom QSPI startup preserves command bytes, empty payloads, delays and bo
   assert.doesNotMatch(renderTargetCmake(preset, '/build'), /GEA_CUSTOM_QSPI_PANEL_CONFIG/)
   assert.doesNotMatch(renderQspiPanelHeader(preset), /#define GEA_QSPI_PANEL/)
 })
+
+test('an SPI TFT board composes an ST7789 panel and a polled FT6336', () => {
+  // The LAFVIN multimedia kit shape: a 240x320 ST7789-class panel on four SPI
+  // lines with no reset or backlight GPIO (reset follows EN, backlight wired
+  // on), BGR order, and an FT6336 on the I2C bus with no INT or reset routed.
+  const definitionPath = path.join(fixtureDir, 'spi-panel-board.json')
+  const catalog = loadChipCatalogFromDir(fixtureDir)
+  const definition = JSON.parse(readFileSync(definitionPath, 'utf8'))
+  const target = normalizeCustomTarget(definition, catalog)
+
+  assert.equal(target.chips.display.interface, 'spi')
+  assert.equal(target.chips.display.spiHost, 'spi2')
+  assert.equal(target.chips.display.pclkHz, 40000000)
+  assert.equal(target.chips.display.spiMode, 0)
+  assert.equal(target.chips.display.colorOrder, 'bgr')
+  assert.equal(target.chips.display.invertColors, true)
+  assert.deepEqual(target.chips.display.pins, { mosi: 16, sclk: 21, cs: 47, dc: 17, reset: -1, backlight: -1 })
+  assert.equal(target.chips.touch.driver, 'ft6336')
+  assert.equal(target.chips.touch.pins.reset, -1)
+  assert.equal(target.chips.touch.pins.interrupt, -1)
+
+  const header = renderBoardHeader(target)
+  assert.match(header, /#include "driver\/spi_master\.h"/)
+  assert.match(header, /St7789DisplayConfig display\{/)
+  assert.match(header, /\.spiHost = SPI2_HOST, \.mosi = GPIO_NUM_16, \.sclk = GPIO_NUM_21/)
+  assert.match(header, /\.cs = GPIO_NUM_47, \.dc = GPIO_NUM_17/)
+  assert.match(header, /\.reset = GPIO_NUM_NC, \.backlight = GPIO_NUM_NC/)
+  assert.match(header, /Ft3168TouchConfig touch\{ \.reset = GPIO_NUM_NC, \.interrupt = GPIO_NUM_NC \}/)
+  assert.doesNotMatch(header, /Co5300DisplayConfig/)
+
+  const cmake = renderTargetCmake(target, '/out')
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_DISPLAY_INTERFACE "spi"\)/)
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_TOUCH_DRIVER "ft6336"\)/)
+  assert.match(cmake, /chip_bindings\/displays\/st7789\.cpp/)
+  assert.match(cmake, /chip_bindings\/touch\/ft6336\.cpp/)
+  assert.match(cmake, /chip_bindings\/touch\/ft6336_touchscreen\.cpp/)
+  assert.match(cmake, /\$\{GEA_CHIPS\}\/touch\/ft6336\/ft6336\.cpp/)
+  assert.doesNotMatch(cmake, /touch_absent/)
+  assert.match(cmake, /set\(GEA_CUSTOM_TARGET_REQUIRES esp_driver_ledc\)/)
+  // The panel is declared in its native portrait geometry; the logical size
+  // follows unless the app says otherwise, and the pipeline's own switches
+  // ride along as definitions.
+  assert.match(cmake, /GEA_EMBEDDED_DISPLAY_WIDTH=240/)
+  assert.match(cmake, /GEA_EMBEDDED_DISPLAY_NATIVE_HEIGHT=320/)
+  assert.match(cmake, /GEA_ST7789_LOG_TAG=\\"st7789\\"/)
+  assert.match(cmake, /GEA_ST7789_PCLK_HZ=40000000/)
+  assert.match(cmake, /GEA_ST7789_RGB_ORDER_BGR=1/)
+  assert.match(cmake, /GEA_ST7789_INVERT_COLORS=1/)
+  assert.match(cmake, /GEA_ST7789_GAP_X=0/)
+  assert.match(cmake, /GEA_ST7789_M5PM1_POWER=0/)
+  // The SPI pipeline stores panel-endian pixels like the base's QSPI one.
+  assert.doesNotMatch(cmake, /PIXEL_PANEL_ENDIAN/)
+  // An app that sizes the surface itself (landscape on a portrait panel)
+  // silences the board's width and height but keeps the native pair.
+  const quiet = renderTargetCmake(target, '/out', new Set(['GEA_EMBEDDED_DISPLAY_WIDTH', 'GEA_EMBEDDED_DISPLAY_HEIGHT']))
+  assert.doesNotMatch(quiet, /GEA_EMBEDDED_DISPLAY_WIDTH=/)
+  assert.match(quiet, /GEA_EMBEDDED_DISPLAY_NATIVE_WIDTH=240/)
+
+  // Every SPI line is a GPIO of its own.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, display: { ...definition.chips.display, pins: { ...definition.chips.display.pins, dc: 21 } } } }, catalog),
+    /GPIO 21 is assigned to both display SCLK and display DC/
+  )
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, display: { ...definition.chips.display, colorOrder: 'grb' } } }, catalog),
+    /colorOrder must be 'rgb' or 'bgr'/
+  )
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, display: { ...definition.chips.display, spiMode: 4 } } }, catalog),
+    /spiMode must be an integer from 0 through 3/
+  )
+  // A QSPI controller does not speak plain SPI, and the error names the catalog.
+  assert.throws(
+    () => normalizeCustomTarget({ ...definition, chips: { ...definition.chips, display: { ...definition.chips.display, driver: 'co5300' } } }, catalog),
+    /does not support the 'spi' interface/
+  )
+})
